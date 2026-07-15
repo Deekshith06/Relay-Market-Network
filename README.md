@@ -1,4 +1,4 @@
-# Relay Market Network
+ Relay Market Network
 
 Relay is a three-role marketplace and delivery system built with Java 17, JDBC,
 PostgreSQL, and vanilla HTML/CSS/JavaScript. Customers shop database-backed
@@ -392,24 +392,145 @@ sequenceDiagram
 ### Scheduled Gift Delivery Workflow
 
 ```mermaid
-%%{init: {'theme': 'dark'}}%%
-flowchart LR
-    A[Customer chooses gift] --> B[Recipient and occasion details]
-    B --> C[Gift wrap and hidden-price option]
-    C --> D[Future date and delivery slot]
-    D --> E[Server validates timezone and slot capacity]
-    E --> F{Slot available?}
-    F -- No --> G[Return alternative slots]
-    G --> D
-    F -- Yes --> H[Create SCHEDULED order]
-    H --> I[Reserve stock and slot capacity]
-    I --> J[Scheduler polls due rows]
-    J --> K[FOR UPDATE SKIP LOCKED claim]
-    K --> L{Still due and eligible?}
-    L -- No --> M[Release claim safely]
-    L -- Yes --> N[Transition once to PLACED]
-    N --> O[Continue normal confirmation and dispatch workflow]
+%%{init: {
+  'theme': 'dark',
+  'sequence': {
+    'useMaxWidth': true,
+    'wrap': true,
+    'diagramMarginX': 40,
+    'diagramMarginY': 24,
+    'actorMargin': 55,
+    'width': 170,
+    'height': 65,
+    'boxMargin': 12,
+    'messageMargin': 38,
+    'noteMargin': 14
+  },
+  'themeVariables': {
+    'fontSize': '17px',
+    'actorBkg': '#1e1e24',
+    'actorBorder': '#8e8e93',
+    'actorTextColor': '#f5f5f7',
+    'signalColor': '#d1d5db',
+    'signalTextColor': '#f5f5f7',
+    'labelBoxBkgColor': '#292524',
+    'labelBoxBorderColor': '#f59e0b',
+    'labelTextColor': '#fffbeb',
+    'noteBkgColor': '#172554',
+    'noteBorderColor': '#60a5fa',
+    'noteTextColor': '#eff6ff'
+  }
+}}%%
+sequenceDiagram
+    autonumber
+    actor Customer
+    participant UI as Relay Frontend
+    participant API as Relay API
+    participant DB as PostgreSQL
+    participant Scheduler as Gift Scheduler
+    participant Admin
+    participant Courier
+
+    rect rgb(23, 37, 84)
+        Note over Customer,UI: Phase 1 — Gift configuration and price preview
+        Customer->>UI: Select products and enable Gift Delivery
+        UI-->>Customer: Show recipient, occasion, wrapping and schedule form
+        Customer->>UI: Enter recipient name, phone and gift message
+        Customer->>UI: Select occasion, gift wrap and hidden-price slip
+        Customer->>UI: Choose future date, time slot and timezone
+        UI->>API: Request quote with gift and scheduling options
+        API->>DB: Validate address coverage, slot capacity, stock and pricing rules
+        DB-->>API: Return validation and pricing data
+        API-->>UI: Return item, distance, weight, gift, schedule, tax and final price
+        UI-->>Customer: Display complete payable amount before order
+    end
+
+    alt Address, stock or slot is invalid
+        API-->>UI: Return field-level errors and available alternatives
+        UI-->>Customer: Keep entered data and show suggested dates or slots
+        Customer->>UI: Correct address, items, date or time slot
+        UI->>API: Request a refreshed secure quote
+    else Gift order is valid
+        rect rgb(5, 46, 22)
+            Note over Customer,DB: Phase 2 — Secure scheduled checkout
+            Customer->>UI: Confirm gift order
+            UI->>API: POST order with quote ID and Idempotency-Key
+            API->>DB: BEGIN transaction and lock quote
+            API->>DB: Recalculate price and lock inventory and slot rows
+            API->>DB: Reserve stock and slot capacity
+            API->>DB: Store recipient, occasion, message and instructions
+            API->>DB: Generate protected six-digit delivery code
+            API->>DB: Create order with status SCHEDULED
+            API->>DB: Mark quote used and COMMIT
+            API-->>UI: Return order confirmation and customer-only code
+            UI-->>Customer: Show scheduled date, slot, final price and tracking page
+        end
+    end
+
+    rect rgb(59, 7, 100)
+        Note over Scheduler,DB: Phase 3 — Safe release when the scheduled time arrives
+        loop Every configured scheduler interval
+            Scheduler->>DB: Poll due orders using FOR UPDATE SKIP LOCKED
+            DB-->>Scheduler: Return one unclaimed eligible scheduled order
+
+            alt Order is not yet eligible
+                Scheduler->>DB: Release claim without changing the order
+                Scheduler->>DB: Record reason such as payment, stock or timing issue
+            else Order is due and eligible
+                Scheduler->>DB: Atomically change SCHEDULED to PLACED
+                Scheduler->>DB: Write status history and scheduler audit event
+                Scheduler-->>Admin: Publish order to the operations queue
+            end
+        end
+    end
+
+    rect rgb(41, 37, 36)
+        Note over Admin,Courier: Phase 4 — Preparation, assignment and live delivery
+        Admin->>API: Confirm the due gift order
+        API->>DB: Validate PLACED state and change to CONFIRMED
+        Admin->>API: Mark packing complete
+        API->>DB: Validate CONFIRMED state and change to PACKED
+        Admin->>API: Auto-assign or manually assign an eligible courier
+        API->>DB: Check order version, zone, load, vehicle and weight capacity
+        API->>DB: Save assignment and change status to ASSIGNED
+        API-->>Courier: Send pickup, destination and gift-handling instructions
+        Courier->>API: Confirm pickup
+        API->>DB: Change ASSIGNED to PICKED_UP
+        Courier->>API: Start delivery and publish validated GPS updates
+        API->>DB: Change PICKED_UP to OUT_FOR_DELIVERY
+        API-->>Customer: Stream route, courier location, ETA and status timeline
+    end
+
+    rect rgb(69, 10, 10)
+        Note over Customer,Courier: Phase 5 — Secure gift handoff
+        Courier->>API: Move order to DELIVERY_VERIFICATION
+        Courier->>Customer: Hand over gift and request delivery code
+        Customer-->>Courier: Share code only after receiving the parcel
+        Courier->>API: Submit six-digit delivery code
+        API->>DB: Lock order and verify role, state, expiry and failed attempts
+
+        alt Code is correct
+            API->>DB: Atomically set DELIVERED and deliveredAt
+            API->>DB: Clear recoverable code data and retain fingerprint
+            API->>DB: Stop tracking, release courier capacity and write audit logs
+            API-->>Courier: Delivery verified successfully
+            API-->>Customer: Show gift delivered without page reload
+        else Code is incorrect and attempts remain
+            API->>DB: Increment failed attempts and commit audit event
+            API-->>Courier: Show incorrect code and remaining attempts
+        else Five failed attempts reached
+            API->>DB: Set temporary verification lockout and commit security event
+            API-->>Courier: Show lockout time and operations contact action
+        end
+    end
 ```
+
+The scheduled gift flow is intentionally implemented as a sequence diagram rather
+than one long horizontal flowchart. This keeps the chart both wide and tall on
+GitHub, makes every phase readable without excessive zooming, and clearly shows
+which actor owns each action. Gift orders retain the same secure quote,
+idempotency, inventory reservation, `SKIP LOCKED` release, courier assignment,
+live tracking, and delivery-code protections as immediate orders.
 
 ### Frontend Action and Freeze-Prevention Workflow
 
