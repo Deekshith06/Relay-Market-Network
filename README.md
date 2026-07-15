@@ -91,68 +91,444 @@ Do not commit database credentials or map-provider keys. The current frontend
 ships the keyless `MapAdapter` fallback: it shows a route visual, coordinates,
 timeline, distance, ETA, and external-map link when no SDK is configured.
 
-## Working Flows
+## Advanced Workflow Charts
 
-### Customer Journey
+The workflow is enforced on both the frontend and backend. The frontend controls
+what actions are shown, while the backend remains the final authority for roles,
+order ownership, courier assignment, state transitions, inventory, pricing, and
+delivery-code verification.
+
+### Complete Platform Workflow
+
 ```mermaid
-%%{init: {'theme': 'dark', 'themeVariables': { 'background': '#0f0f11', 'primaryColor': '#1e1e24', 'primaryTextColor': '#f5f5f7', 'lineColor': '#8e8e93' }}}%%
-graph TD
-    A[1. Browse Catalog] --> B[2. Configure Items & Cart]
-    B --> C[3. Request Secure Quote]
-    C --> D[4. Select Gift / Schedule]
-    D --> E[5. Place Order & Lock Stock]
-    E --> F[6. Track Courier & ETA]
-    F --> G[7. Provide Delivery Code]
+%%{init: {'theme': 'dark', 'themeVariables': {'background': '#0f0f11', 'primaryColor': '#1e1e24', 'primaryTextColor': '#f5f5f7', 'lineColor': '#8e8e93'}}}%%
+flowchart TD
+    START([User opens Relay]) --> AUTH{Authenticated?}
+    AUTH -- No --> LOGIN[Register or sign in]
+    LOGIN --> ROLE{Resolve server-side role}
+    AUTH -- Yes --> ROLE
 
-    classDef darkNode fill:#1e1e24,stroke:#3a3a3c,stroke-width:2px,color:#f5f5f7;
-    class A,B,C,D,E,F,G darkNode;
+    ROLE -- Customer --> CATALOG[Browse categories and products]
+    CATALOG --> CONFIGURE[Choose variant, quantity, weight and handling options]
+    CONFIGURE --> CART[Add or update cart optimistically]
+    CART --> QUOTE[Request server-owned pricing quote]
+    QUOTE --> QUOTE_VALID{Quote valid and unmodified?}
+    QUOTE_VALID -- No --> REQUOTE[Show error and request a fresh quote]
+    REQUOTE --> QUOTE
+    QUOTE_VALID -- Yes --> DELIVERY_OPTIONS[Choose address, priority, gift and schedule]
+    DELIVERY_OPTIONS --> REVIEW[Review complete price before placing order]
+    REVIEW --> PLACE[Place order with Idempotency-Key]
+    PLACE --> TX{Atomic checkout succeeds?}
+    TX -- No --> CHECKOUT_ERROR[Rollback stock, quote and slot changes]
+    CHECKOUT_ERROR --> REVIEW
+    TX -- Yes --> ORDER_CREATED[Create order and customer-only delivery code]
+    ORDER_CREATED --> SCHEDULED{Future delivery?}
+    SCHEDULED -- Yes --> SCHEDULE_QUEUE[Store as SCHEDULED and reserve inventory]
+    SCHEDULE_QUEUE --> DUE[Scheduler claims due work with SKIP LOCKED]
+    DUE --> PLACED
+    SCHEDULED -- No --> PLACED[PLACED]
+
+    ROLE -- Admin --> ADMIN_DASH[Open operations dashboard]
+    ADMIN_DASH --> ADMIN_MANAGE[Manage catalog, stock, variants, pricing and slots]
+    ADMIN_DASH --> CONFIRM[Confirm valid placed order]
+    PLACED --> CONFIRM
+    CONFIRM --> CONFIRMED[CONFIRMED]
+    CONFIRMED --> PACK[Pack and prepare order]
+    PACK --> PACKED[PACKED]
+    PACKED --> DISPATCH[Run automatic assignment or audited manual assignment]
+
+    ROLE -- Courier --> SHIFT[Activate shift and location sharing]
+    SHIFT --> AVAILABLE[Become eligible for assignment]
+    AVAILABLE --> DISPATCH
+    DISPATCH --> ASSIGN_OK{Eligible courier found?}
+    ASSIGN_OK -- No --> PENDING_QUEUE[Keep order in pending dispatch queue]
+    PENDING_QUEUE --> DISPATCH
+    ASSIGN_OK -- Yes --> ASSIGNED[ASSIGNED]
+    ASSIGNED --> ACCEPT[Assigned courier accepts and picks up]
+    ACCEPT --> PICKED_UP[PICKED_UP]
+    PICKED_UP --> TRANSIT[Start route and publish validated location]
+    TRANSIT --> OUT[OUT_FOR_DELIVERY]
+    OUT --> ARRIVE[Courier reaches verified destination]
+    ARRIVE --> VERIFY_STAGE[DELIVERY_VERIFICATION]
+    VERIFY_STAGE --> CODE[Courier or admin enters customer code]
+    CODE --> VERIFY{Server verifies role, state, code, expiry and attempts}
+    VERIFY -- Incorrect --> ATTEMPTS[Increment failed attempts and audit event]
+    ATTEMPTS --> BLOCKED{Five failures reached?}
+    BLOCKED -- No --> CODE
+    BLOCKED -- Yes --> LOCKOUT[Temporarily block verification]
+    LOCKOUT --> CODE
+    VERIFY -- Correct --> COMPLETE[Atomic delivery completion]
+    COMPLETE --> DELIVERED[DELIVERED]
+    DELIVERED --> CLEANUP[Invalidate code, stop location and release courier capacity]
+    CLEANUP --> END([Order complete])
+
+    classDef customer fill:#172554,stroke:#60a5fa,color:#eff6ff;
+    classDef admin fill:#3b0764,stroke:#c084fc,color:#faf5ff;
+    classDef courier fill:#052e16,stroke:#4ade80,color:#f0fdf4;
+    classDef state fill:#292524,stroke:#f59e0b,color:#fffbeb;
+    classDef danger fill:#450a0a,stroke:#f87171,color:#fef2f2;
+
+    class CATALOG,CONFIGURE,CART,QUOTE,REQUOTE,DELIVERY_OPTIONS,REVIEW,PLACE,ORDER_CREATED customer;
+    class ADMIN_DASH,ADMIN_MANAGE,CONFIRM,PACK,DISPATCH admin;
+    class SHIFT,AVAILABLE,ACCEPT,TRANSIT,ARRIVE,CODE courier;
+    class PLACED,CONFIRMED,PACKED,ASSIGNED,PICKED_UP,OUT,VERIFY_STAGE,DELIVERED state;
+    class CHECKOUT_ERROR,ATTEMPTS,LOCKOUT danger;
 ```
 
-### Courier (Agent) Operations Flow
-```mermaid
-%%{init: {'theme': 'dark', 'themeVariables': { 'background': '#0f0f11', 'primaryColor': '#1e1e24', 'primaryTextColor': '#f5f5f7', 'lineColor': '#8e8e93' }}}%%
-graph TD
-    H[1. Login & Share GPS] --> I[2. Wait for Auto-Assignment]
-    I --> J[3. Pack & Dispatch Order]
-    J --> K[4. Transit & Live Location]
-    K --> L[5. Enter Customer OTP]
-    L --> M[6. Deliver & Release Capacity]
+### Customer Order Workflow
 
-    classDef darkNode fill:#1e1e24,stroke:#3a3a3c,stroke-width:2px,color:#f5f5f7;
-    class H,I,J,K,L,M darkNode;
+```mermaid
+%%{init: {'theme': 'dark'}}%%
+flowchart TD
+    A([Customer signs in]) --> B[Browse electronics, clothes, food, tablets and other categories]
+    B --> C[Open product details]
+    C --> D[Select variant, quantity and weight]
+    D --> E[Add to cart without page reload]
+    E --> F[Recalculate item total and delivery weight]
+    F --> G[Detect current location or choose saved address]
+    G --> H[Calculate distance, route and ETA]
+    H --> I[Request secure price quote]
+    I --> J[Show full price before order]
+    J --> K{Gift delivery?}
+    K -- Yes --> L[Enter recipient, occasion, message, wrap, date and time slot]
+    K -- No --> M[Choose immediate or scheduled delivery]
+    L --> N[Validate recipient and schedule]
+    M --> N
+    N --> O{Quote or inventory changed?}
+    O -- Yes --> P[Refresh affected quote only]
+    P --> J
+    O -- No --> Q[Confirm order]
+    Q --> R[Submit with Idempotency-Key]
+    R --> S{Checkout result}
+    S -- Failure --> T[Show actionable error and keep entered data]
+    T --> J
+    S -- Success --> U[Show order ID and private six-digit code]
+    U --> V[Track status, courier, route and ETA]
+    V --> W[Receive parcel]
+    W --> X[Share code only after checking the parcel]
+    X --> Y[Order becomes DELIVERED after server verification]
 ```
 
-### Admin Operations Flow
-```mermaid
-%%{init: {'theme': 'dark', 'themeVariables': { 'background': '#0f0f11', 'primaryColor': '#1e1e24', 'primaryTextColor': '#f5f5f7', 'lineColor': '#8e8e93' }}}%%
-graph TD
-    N[1. Manage Catalog & Rules] --> O[2. Monitor Signals Dashboard]
-    O --> P[3. Execute Manual Overrides]
+### Courier Operations Workflow
 
-    classDef darkNode fill:#1e1e24,stroke:#3a3a3c,stroke-width:2px,color:#f5f5f7;
-    class N,O,P darkNode;
+```mermaid
+%%{init: {'theme': 'dark'}}%%
+flowchart TD
+    A([Courier signs in]) --> B[Start shift]
+    B --> C[Grant location permission]
+    C --> D{Location signal valid?}
+    D -- No --> E[Reject stale, duplicate or impossible coordinates]
+    E --> C
+    D -- Yes --> F[Publish availability, vehicle and capacity]
+    F --> G[Wait for assignment]
+    G --> H{Order assigned?}
+    H -- No --> G
+    H -- Yes --> I[Review pickup, destination, weight and handling needs]
+    I --> J{Can courier safely carry order?}
+    J -- No --> K[Reject with reason and return order to dispatch queue]
+    J -- Yes --> L[Accept assignment]
+    L --> M[Pick up order]
+    M --> N[Status: PICKED_UP]
+    N --> O[Start delivery]
+    O --> P[Status: OUT_FOR_DELIVERY]
+    P --> Q[Stream validated live location]
+    Q --> R[Reach customer]
+    R --> S[Status: DELIVERY_VERIFICATION]
+    S --> T[Open secure code modal]
+    T --> U[Enter six-digit customer code]
+    U --> V{Server verification result}
+    V -- Correct --> W[Commit DELIVERED atomically]
+    W --> X[Stop location sharing and release capacity]
+    X --> Y([Delivery completed])
+    V -- Incorrect --> Z[Show remaining attempts without exposing code]
+    Z --> AA{Five failures?}
+    AA -- No --> T
+    AA -- Yes --> AB[Temporary lockout and security audit]
+    AB --> AC[Contact operations/customer and wait for unlock]
+    AC --> T
 ```
 
+### Admin Operations Workflow
 
+```mermaid
+%%{init: {'theme': 'dark'}}%%
+flowchart TD
+    A([Admin signs in]) --> B[Open live operations dashboard]
+    B --> C{Choose operation}
 
-### 1. Customer Workflow
-- **Catalog & Selection**: Customers browse categorized products, supporting both fixed-price items, variant configuration (e.g., color/size), and weight-based items.
-- **Dynamic Pricing Engine**: Adding items to the cart requests a pricing quote. The system calculates base fares, progressive distance and weight fees, fragile handling surcharges, and discount coupons.
-- **Gift Wrap & Scheduling**: Deliveries can be scheduled for future date/slots, or sent as gifts (which hides the price from packing slips and adds wrapping options).
-- **Secure Order Placement**: Checking out locks the generated quote and decrements inventory in a transaction.
-- **Real-Time Tracking**: Once dispatched, the customer can monitor the courier's live location, route map, timeline, and ETA.
-- **Secure Verification**: On delivery, the customer provides their unique one-time verification code to the courier to complete the handoff.
+    C --> D[Catalog management]
+    D --> D1[Create or update product/category/variant]
+    D1 --> D2[Validate price, weight and image host]
+    D2 --> D3[Save and write admin audit record]
 
-### 2. Courier (Agent) Workflow
-- **Shift Activation**: Couriers log in and enable location sharing. The system captures and evaluates speed, impossible coordinate jumps, and timestamp freshness.
-- **Queue-Based Dispatch**: Orders are queued. The dispatcher finds the most optimal courier based on active carried weight, vehicle type, Haversine distance, rating, and current queue load.
-- **Lifecycle Execution**: Couriers process orders through distinct stages: `ASSIGNED` -> `PICKED_UP` -> `OUT_FOR_DELIVERY` -> `DELIVERY_VERIFICATION`.
-- **OTP Handoff**: The courier inputs the customer's 6-digit OTP code to finalize the order.
+    C --> E[Inventory management]
+    E --> E1[Increase, decrease or correct stock]
+    E1 --> E2[Require reason and prevent negative stock]
+    E2 --> E3[Refresh low-stock dashboard]
 
-### 3. Admin Workflow
-- **Operational Management**: Admins oversee products, update stock levels, manage coupon codes, and define granular pricing rules (e.g., platform charges, regional pricing zones).
-- **Live Signal Dashboard**: Admins view a live control panel displaying agent positions, active delivery routes, scheduled gifts queue, and inventory alerts.
-- **Audited Overrides**: Allows admins to manually assign/reassign couriers (protected by optimistic version locking) or bypass verification with a documented reason.
+    C --> F[Order operations]
+    F --> F1[Confirm PLACED order]
+    F1 --> F2[Pack CONFIRMED order]
+    F2 --> F3[Auto-assign or manually assign courier]
+    F3 --> F4[Use expectedOrderVersion]
+    F4 --> F5{Version and capacity valid?}
+    F5 -- No --> F6[Return 409 and reload latest order]
+    F5 -- Yes --> F7[Commit assignment and audit record]
+
+    C --> G[Live monitoring]
+    G --> G1[View courier signals, routes, ETA and stale GPS alerts]
+    G1 --> G2[Reassign only when policy permits]
+    G2 --> F4
+
+    C --> H[Admin delivery confirmation]
+    H --> H1[Select order in DELIVERY_VERIFICATION]
+    H1 --> H2[Enter customer code]
+    H2 --> H3[Enter mandatory manual-confirmation reason]
+    H3 --> H4{Code, role, state and reason valid?}
+    H4 -- No --> H5[Reject, audit failure and keep order undelivered]
+    H4 -- Yes --> H6[Atomically mark DELIVERED]
+    H6 --> H7[Record admin identity, timestamp and reason]
+
+    C --> I[Scheduled and gift queue]
+    I --> I1[Monitor due, delayed and failed scheduled work]
+    I1 --> I2[Retry safely without duplicate release]
+
+    H5 --> B
+    H7 --> B
+    D3 --> B
+    E3 --> B
+    F6 --> B
+    F7 --> B
+    G1 --> B
+    I2 --> B
+```
+
+> Admins do not have a delivery-code bypass. An admin can confirm delivery only by
+> submitting the same customer-owned code and a documented operational reason.
+
+### Strict Order State Machine
+
+```mermaid
+%%{init: {'theme': 'dark'}}%%
+stateDiagram-v2
+    [*] --> SCHEDULED: Future gift or scheduled order
+    [*] --> PLACED: Immediate checkout succeeds
+    SCHEDULED --> PLACED: Scheduler releases due order
+    PLACED --> CONFIRMED: Admin/system validates order
+    PLACED --> CANCELLED: Customer/admin cancellation policy
+    CONFIRMED --> PACKED: Admin completes packing
+    CONFIRMED --> CANCELLED: Allowed cancellation
+    PACKED --> ASSIGNED: Dispatcher commits courier assignment
+    PACKED --> CANCELLED: Admin cancellation with inventory release
+    ASSIGNED --> PICKED_UP: Assigned courier only
+    ASSIGNED --> PACKED: Audited unassign/reassignment
+    PICKED_UP --> OUT_FOR_DELIVERY: Assigned courier only
+    OUT_FOR_DELIVERY --> DELIVERY_VERIFICATION: Courier reaches destination
+    DELIVERY_VERIFICATION --> DELIVERED: Correct customer code only
+    DELIVERY_VERIFICATION --> DELIVERY_VERIFICATION: Incorrect code below limit
+    DELIVERY_VERIFICATION --> VERIFICATION_BLOCKED: Five failed attempts
+    VERIFICATION_BLOCKED --> DELIVERY_VERIFICATION: Lockout expires/admin unlock policy
+    DELIVERED --> [*]
+    CANCELLED --> [*]
+```
+
+Invalid transitions are rejected by the backend. In particular:
+
+- `PLACED -> DELIVERED` is forbidden.
+- `PACKED -> PICKED_UP` is forbidden until a courier is assigned.
+- `CANCELLED -> DELIVERED` is forbidden.
+- `DELIVERED -> OUT_FOR_DELIVERY` is forbidden.
+- Normal status endpoints cannot write `DELIVERED`.
+- Only the assigned courier or an authorized admin can enter delivery verification.
+- Both courier and admin verification require the customer-owned code.
+
+### Secure Delivery Verification Sequence
+
+```mermaid
+%%{init: {'theme': 'dark'}}%%
+sequenceDiagram
+    autonumber
+    participant Customer
+    participant Client as Customer/Courier/Admin UI
+    participant API as Relay API
+    participant DB as PostgreSQL
+    participant Audit as Security Audit
+
+    Customer->>Client: Customer views private six-digit code
+    Note over Client: Courier and admin responses never contain the code
+    Client->>API: POST verify-delivery(code, expectedVersion, optional reason)
+    API->>API: Authenticate session and resolve role
+    API->>DB: BEGIN transaction
+    API->>DB: Lock order row FOR UPDATE
+    DB-->>API: Current state, assignment, version, expiry, attempts
+    API->>API: Validate state, ownership, role and admin reason
+    API->>API: PBKDF2-verify submitted code
+
+    alt Code is correct
+        API->>DB: Update order to DELIVERED
+        API->>DB: Set deliveredAt and verifier identity
+        API->>DB: Clear code hash and ciphertext
+        API->>DB: Release courier capacity and stop tracking
+        API->>Audit: Write successful verification event
+        API->>DB: COMMIT
+        API-->>Client: 200 Delivery verified
+        Client-->>Customer: Show completed order without page reload
+    else Code is incorrect and attempts remain
+        API->>DB: Increment failed attempts
+        API->>Audit: Write failed attempt without submitted code
+        API->>DB: COMMIT
+        API-->>Client: 422 Incorrect code with attempts remaining
+    else Attempt limit reached
+        API->>DB: Set verificationBlockedUntil
+        API->>Audit: Write lockout event
+        API->>DB: COMMIT
+        API-->>Client: 429 Verification temporarily blocked
+    else Stale version or invalid state
+        API->>DB: ROLLBACK
+        API-->>Client: 409 Refresh latest order state
+    end
+```
+
+### Scheduled Gift Delivery Workflow
+
+```mermaid
+%%{init: {'theme': 'dark'}}%%
+flowchart LR
+    A[Customer chooses gift] --> B[Recipient and occasion details]
+    B --> C[Gift wrap and hidden-price option]
+    C --> D[Future date and delivery slot]
+    D --> E[Server validates timezone and slot capacity]
+    E --> F{Slot available?}
+    F -- No --> G[Return alternative slots]
+    G --> D
+    F -- Yes --> H[Create SCHEDULED order]
+    H --> I[Reserve stock and slot capacity]
+    I --> J[Scheduler polls due rows]
+    J --> K[FOR UPDATE SKIP LOCKED claim]
+    K --> L{Still due and eligible?}
+    L -- No --> M[Release claim safely]
+    L -- Yes --> N[Transition once to PLACED]
+    N --> O[Continue normal confirmation and dispatch workflow]
+```
+
+### Frontend Action and Freeze-Prevention Workflow
+
+```mermaid
+%%{init: {'theme': 'dark'}}%%
+flowchart TD
+    A[User clicks Next, Add to Cart, Assign or Verify] --> B{Action already running?}
+    B -- Yes --> C[Ignore duplicate click]
+    B -- No --> D[Disable only the clicked control]
+    D --> E[Show button-level loading indicator]
+    E --> F[Start request with AbortController timeout]
+    F --> G{Request result}
+    G -- Success --> H[Patch only affected UI state]
+    G -- Validation error --> I[Show inline error and preserve form data]
+    G -- Network/timeout error --> J[Show retry action and offline state]
+    H --> K[Close modal when appropriate]
+    I --> L[Keep modal interactive]
+    J --> L
+    K --> M[Remove backdrop and scroll lock]
+    L --> N[Restore focus to valid control]
+    M --> N
+    N --> O[Clear loading state in finally]
+    O --> P[Re-enable clicked control]
+    P --> Q[Website remains clickable without reload]
+```
+
+Every asynchronous frontend action must clear its loading state in `finally`. Modal
+cleanup removes backdrops, document listeners, body scroll locks, and temporary
+`pointer-events` changes. A failed request must never leave a full-page overlay or
+permanently disabled interface.
+
+### Role and Transition Authority
+
+| Operation | Customer | Assigned Courier | Admin | Backend enforcement |
+| --- | --- | --- | --- | --- |
+| Browse, cart and quote | Yes | No | Optional read | Ownership and quote expiry |
+| Place order | Yes | No | No | Idempotency, stock and quote transaction |
+| View private delivery code | Order owner only | Never | Never | Resource ownership and response filtering |
+| Confirm and pack order | No | No | Yes | Strict current-state validation |
+| Assign or reassign courier | No | No | Yes | Version, capacity, zone and audit checks |
+| Publish courier location | No | Assigned courier | No | Assignment, timestamp and movement validation |
+| Advance delivery lifecycle | No | Assigned courier | Controlled operations | State-machine validation |
+| Verify delivery | No | Yes, with code | Yes, with code and reason | Hash check, expiry, attempts and atomic commit |
+| Directly set `DELIVERED` | No | No | No | Always rejected outside verification endpoint |
+| Cancel order | Policy dependent | No | Policy dependent | State, ownership and inventory release rules |
+
+### Detailed Role Workflows
+
+#### 1. Customer Workflow
+
+- **Catalog and product selection:** Browse database-backed categories including
+  electronics, clothes, food, tablets, and other items. Select fixed-price,
+  variant-based, or weight-based products.
+- **Dynamic price preview:** Before checkout, view the product subtotal, weight
+  charge, progressive distance charge, handling fees, gift/schedule charges,
+  platform fees, tax, discount, and final payable amount.
+- **Address and live location:** Use browser location when permitted or select a
+  saved/manual address. The backend calculates route distance and eligible zones.
+- **Gift scheduling:** Choose recipient, occasion, message, wrapping, hidden-price
+  packing slip, exact date, and available delivery slot.
+- **Safe checkout:** Submit the server quote with an `Idempotency-Key`. Quote
+  validation, stock locking, stock decrement, slot reservation, and order creation
+  occur in one transaction.
+- **Private delivery code:** Receive a unique six-digit code visible only on the
+  authenticated customer order page. Share it only after physically receiving and
+  checking the parcel.
+- **Live tracking:** Follow courier position, route, ETA, status timeline, and
+  delivery progress without refreshing the entire page.
+
+#### 2. Courier Workflow
+
+- **Shift activation:** Sign in, activate the shift, publish vehicle/capacity data,
+  and begin validated location sharing.
+- **Assignment:** Receive only orders compatible with zone, remaining capacity,
+  vehicle type, carried weight, current workload, distance, and availability.
+- **Pickup and transit:** Move the order through `ASSIGNED`, `PICKED_UP`,
+  `OUT_FOR_DELIVERY`, and `DELIVERY_VERIFICATION`. Each transition is checked by
+  the backend and restricted to the currently assigned courier.
+- **Secure handoff:** Enter the customer's six-digit code. Incorrect attempts are
+  counted and audited; five failures trigger a temporary lockout.
+- **Completion:** A correct code atomically marks the order `DELIVERED`, records the
+  verifier, clears recoverable code material, stops tracking, and releases courier
+  capacity.
+
+#### 3. Admin Workflow
+
+- **Catalog and inventory:** Create, update, deactivate, and restore products,
+  categories, variants, prices, weights, stock, images, and operational rules.
+- **Order operations:** Confirm orders, complete packing, assign/reassign couriers,
+  inspect scheduled deliveries, and resolve dispatch exceptions.
+- **Concurrency safety:** Assignment and reassignment require
+  `expectedOrderVersion`; stale actions return `409` and cannot overwrite newer
+  dispatch decisions.
+- **Live control centre:** Monitor active couriers, stale GPS signals, current
+  routes, ETA risk, capacity, scheduled gifts, low stock, failed payments, and
+  verification lockouts.
+- **Delivery confirmation:** Admin confirmation is not a bypass. The admin must
+  enter the correct customer code and a mandatory reason. The action records the
+  admin identity, reason, timestamp, old/new state, and security metadata.
+
+#### 4. Failure and Recovery Workflow
+
+- **Quote expired or changed:** Generate a fresh server quote and preserve checkout
+  selections.
+- **Stock conflict:** Roll back checkout and show the unavailable item without
+  creating a partial order.
+- **Duplicate Place Order click:** Return the original result through the same
+  `Idempotency-Key`.
+- **Stale admin action:** Return `409`, reload the current order version, and ask
+  the admin to repeat the operation against fresh data.
+- **No eligible courier:** Keep the order in the pending queue and retry without
+  allowing a heavy order at the head to block compatible later orders.
+- **Location rejected:** Keep the last valid point and request a fresh GPS update.
+- **Incorrect delivery code:** Commit the failed-attempt counter and audit record
+  even though delivery is rejected.
+- **Five failed attempts:** Set a temporary server-side lockout and show the unlock
+  time without exposing any code information.
+- **Frontend request failure:** Remove loaders and overlays in `finally`, preserve
+  entered data, and present a retry button without reloading the page.
 
 ---
 
