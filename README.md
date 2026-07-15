@@ -95,43 +95,44 @@ timeline, distance, ETA, and external-map link when no SDK is configured.
 
 ### Customer Journey
 ```mermaid
-graph LR
-    A[Browse Catalog] --> B[Configure Cart]
-    B --> C[Request Secure Quote]
-    C --> D[Select Gift / Schedule]
-    D --> E[Place Order & Lock Stock]
-    E --> F[Track Courier & ETA]
-    F --> G[Provide Delivery Code]
-    
-    style A fill:#e1f5fe,stroke:#0288d1,stroke-width:2px;
-    style E fill:#e8f5e9,stroke:#388e3c,stroke-width:2px;
-    style G fill:#fffde7,stroke:#fbc02d,stroke-width:2px;
+%%{init: {'theme': 'dark', 'themeVariables': { 'background': '#0f0f11', 'primaryColor': '#1e1e24', 'primaryTextColor': '#f5f5f7', 'lineColor': '#8e8e93' }}}%%
+graph TD
+    A[1. Browse Catalog] --> B[2. Configure Items & Cart]
+    B --> C[3. Request Secure Quote]
+    C --> D[4. Select Gift / Schedule]
+    D --> E[5. Place Order & Lock Stock]
+    E --> F[6. Track Courier & ETA]
+    F --> G[7. Provide Delivery Code]
+
+    classDef darkNode fill:#1e1e24,stroke:#3a3a3c,stroke-width:2px,color:#f5f5f7;
+    class A,B,C,D,E,F,G darkNode;
 ```
 
 ### Courier (Agent) Operations Flow
 ```mermaid
-graph LR
-    H[Login & Share GPS] --> I[Wait for Auto-Assignment]
-    I --> J[Order Packing & Dispatch]
-    J --> K[Transit & Live Tracking]
-    K --> L[Submit Customer OTP]
-    L --> M[Order Delivered & Capacity Released]
+%%{init: {'theme': 'dark', 'themeVariables': { 'background': '#0f0f11', 'primaryColor': '#1e1e24', 'primaryTextColor': '#f5f5f7', 'lineColor': '#8e8e93' }}}%%
+graph TD
+    H[1. Login & Share GPS] --> I[2. Wait for Auto-Assignment]
+    I --> J[3. Pack & Dispatch Order]
+    J --> K[4. Transit & Live Location]
+    K --> L[5. Enter Customer OTP]
+    L --> M[6. Deliver & Release Capacity]
 
-    style H fill:#e1f5fe,stroke:#0288d1,stroke-width:2px;
-    style K fill:#e8f5e9,stroke:#388e3c,stroke-width:2px;
-    style M fill:#fffde7,stroke:#fbc02d,stroke-width:2px;
+    classDef darkNode fill:#1e1e24,stroke:#3a3a3c,stroke-width:2px,color:#f5f5f7;
+    class H,I,J,K,L,M darkNode;
 ```
 
 ### Admin Operations Flow
 ```mermaid
-graph LR
-    N[Manage Products & Dynamic Pricing] --> O[Monitor Live Signals Dashboard]
-    O --> P[Trigger Manual / Re-assignment Overrides]
+%%{init: {'theme': 'dark', 'themeVariables': { 'background': '#0f0f11', 'primaryColor': '#1e1e24', 'primaryTextColor': '#f5f5f7', 'lineColor': '#8e8e93' }}}%%
+graph TD
+    N[1. Manage Catalog & Rules] --> O[2. Monitor Signals Dashboard]
+    O --> P[3. Execute Manual Overrides]
 
-    style N fill:#e1f5fe,stroke:#0288d1,stroke-width:2px;
-    style O fill:#e8f5e9,stroke:#388e3c,stroke-width:2px;
-    style P fill:#fffde7,stroke:#fbc02d,stroke-width:2px;
+    classDef darkNode fill:#1e1e24,stroke:#3a3a3c,stroke-width:2px,color:#f5f5f7;
+    class N,O,P darkNode;
 ```
+
 
 
 ### 1. Customer Workflow
