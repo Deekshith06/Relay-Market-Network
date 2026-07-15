@@ -1,0 +1,10 @@
+{
+  "name": "relay-delivery",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "test": "node --test tests/frontend.test.js",
+    "test:api": "node tests/api.integration.mjs",
+    "lint": "node --check frontend/app.js && node --test tests/frontend.test.js"
+  }
+}
