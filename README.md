@@ -93,30 +93,46 @@ timeline, distance, ETA, and external-map link when no SDK is configured.
 
 ## Working Flows
 
+### Customer Journey
 ```mermaid
-graph TD
-    subgraph Customer Flow
-        A[Browse Catalog] --> B[Configure Cart / Customise Weight & Variants]
-        B --> C[Request Secure Quote / POST /api/pricing/quote]
-        C --> D[Select Scheduling / Gift Wrap Options]
-        D --> E[Place Order / SECURE QUOTE & LOCK STOCK]
-        E --> F[Track Courier Location & ETA]
-        F --> G[Provide Delivery Verification Code to Courier]
-    end
-
-    subgraph Courier Flow
-        H[Login / Activate Location Sharing] --> I[Wait for Automatic Assignment]
-        I --> J[Advance Order: PLACED -> CONFIRMED -> PACKED]
-        J --> K[Execute Delivery: ASSIGNED -> PICKED_UP -> OUT_FOR_DELIVERY]
-        K --> L[Enter Customer OTP Verification Code]
-        L --> M[Order Delivered / Capacity Released / Location sharing stops]
-    end
-
-    subgraph Admin Flow
-        N[Manage Catalog & Dynamic Pricing Rules] --> O[Monitor Live Signals & Dashboard]
-        O --> P[Trigger Manual / Re-assignment Overrides]
-    end
+graph LR
+    A[Browse Catalog] --> B[Configure Cart]
+    B --> C[Request Secure Quote]
+    C --> D[Select Gift / Schedule]
+    D --> E[Place Order & Lock Stock]
+    E --> F[Track Courier & ETA]
+    F --> G[Provide Delivery Code]
+    
+    style A fill:#e1f5fe,stroke:#0288d1,stroke-width:2px;
+    style E fill:#e8f5e9,stroke:#388e3c,stroke-width:2px;
+    style G fill:#fffde7,stroke:#fbc02d,stroke-width:2px;
 ```
+
+### Courier (Agent) Operations Flow
+```mermaid
+graph LR
+    H[Login & Share GPS] --> I[Wait for Auto-Assignment]
+    I --> J[Order Packing & Dispatch]
+    J --> K[Transit & Live Tracking]
+    K --> L[Submit Customer OTP]
+    L --> M[Order Delivered & Capacity Released]
+
+    style H fill:#e1f5fe,stroke:#0288d1,stroke-width:2px;
+    style K fill:#e8f5e9,stroke:#388e3c,stroke-width:2px;
+    style M fill:#fffde7,stroke:#fbc02d,stroke-width:2px;
+```
+
+### Admin Operations Flow
+```mermaid
+graph LR
+    N[Manage Products & Dynamic Pricing] --> O[Monitor Live Signals Dashboard]
+    O --> P[Trigger Manual / Re-assignment Overrides]
+
+    style N fill:#e1f5fe,stroke:#0288d1,stroke-width:2px;
+    style O fill:#e8f5e9,stroke:#388e3c,stroke-width:2px;
+    style P fill:#fffde7,stroke:#fbc02d,stroke-width:2px;
+```
+
 
 ### 1. Customer Workflow
 - **Catalog & Selection**: Customers browse categorized products, supporting both fixed-price items, variant configuration (e.g., color/size), and weight-based items.
