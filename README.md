@@ -91,6 +91,101 @@ Do not commit database credentials or map-provider keys. The current frontend
 ships the keyless `MapAdapter` fallback: it shows a route visual, coordinates,
 timeline, distance, ETA, and external-map link when no SDK is configured.
 
+## Working Flows
+
+```mermaid
+graph TD
+    subgraph Customer Flow
+        A[Browse Catalog] --> B[Configure Cart / Customise Weight & Variants]
+        B --> C[Request Secure Quote / POST /api/pricing/quote]
+        C --> D[Select Scheduling / Gift Wrap Options]
+        D --> E[Place Order / SECURE QUOTE & LOCK STOCK]
+        E --> F[Track Courier Location & ETA]
+        F --> G[Provide Delivery Verification Code to Courier]
+    end
+
+    subgraph Courier Flow
+        H[Login / Activate Location Sharing] --> I[Wait for Automatic Assignment]
+        I --> J[Advance Order: PLACED -> CONFIRMED -> PACKED]
+        J --> K[Execute Delivery: ASSIGNED -> PICKED_UP -> OUT_FOR_DELIVERY]
+        K --> L[Enter Customer OTP Verification Code]
+        L --> M[Order Delivered / Capacity Released / Location sharing stops]
+    end
+
+    subgraph Admin Flow
+        N[Manage Catalog & Dynamic Pricing Rules] --> O[Monitor Live Signals & Dashboard]
+        O --> P[Trigger Manual / Re-assignment Overrides]
+    end
+```
+
+### 1. Customer Workflow
+- **Catalog & Selection**: Customers browse categorized products, supporting both fixed-price items, variant configuration (e.g., color/size), and weight-based items.
+- **Dynamic Pricing Engine**: Adding items to the cart requests a pricing quote. The system calculates base fares, progressive distance and weight fees, fragile handling surcharges, and discount coupons.
+- **Gift Wrap & Scheduling**: Deliveries can be scheduled for future date/slots, or sent as gifts (which hides the price from packing slips and adds wrapping options).
+- **Secure Order Placement**: Checking out locks the generated quote and decrements inventory in a transaction.
+- **Real-Time Tracking**: Once dispatched, the customer can monitor the courier's live location, route map, timeline, and ETA.
+- **Secure Verification**: On delivery, the customer provides their unique one-time verification code to the courier to complete the handoff.
+
+### 2. Courier (Agent) Workflow
+- **Shift Activation**: Couriers log in and enable location sharing. The system captures and evaluates speed, impossible coordinate jumps, and timestamp freshness.
+- **Queue-Based Dispatch**: Orders are queued. The dispatcher finds the most optimal courier based on active carried weight, vehicle type, Haversine distance, rating, and current queue load.
+- **Lifecycle Execution**: Couriers process orders through distinct stages: `ASSIGNED` -> `PICKED_UP` -> `OUT_FOR_DELIVERY` -> `DELIVERY_VERIFICATION`.
+- **OTP Handoff**: The courier inputs the customer's 6-digit OTP code to finalize the order.
+
+### 3. Admin Workflow
+- **Operational Management**: Admins oversee products, update stock levels, manage coupon codes, and define granular pricing rules (e.g., platform charges, regional pricing zones).
+- **Live Signal Dashboard**: Admins view a live control panel displaying agent positions, active delivery routes, scheduled gifts queue, and inventory alerts.
+- **Audited Overrides**: Allows admins to manually assign/reassign couriers (protected by optimistic version locking) or bypass verification with a documented reason.
+
+---
+
+## Advanced Architecture & Data Flow
+
+### 1. Double-Checkout Transactional Isolation
+To prevent race conditions, stock double-booking, and quote tampering:
+- During order creation, the database locks the pricing quote record using transaction isolation (`FOR UPDATE`).
+- The engine reconstructs the shopping cart price, recalculates the dynamic rules, and compares it bit-for-bit with the submitted quote.
+- Stock checks and decrementing occur inside the *same* database transaction block.
+- An `Idempotency-Key` header ensures duplicate client requests safely return the original successful response instead of re-processing.
+
+### 2. Core Scheduler & `SKIP LOCKED` Queue Polls
+For scheduled orders and future gifts:
+- A Java background scheduler wakes up periodically to poll pending scheduled tasks.
+- It queries the database using PostgreSQL's `SELECT ... FOR UPDATE SKIP LOCKED`.
+- This ensures multiple backend instances can query the queue simultaneously without blocking each other or double-dispatching the same scheduled delivery.
+
+### 3. Agent Assignment Min-Heap & Dijkstra Router
+- **Min-Heap Sorter**: The dispatch algorithm structures available agents into a Min-Heap. The priority is calculated using active order counts, remaining vehicle weight capacity, distance, and agent rating. Complexity is bounded at `O(a log a)`.
+- **Dijkstra Route Optimizer**: Built on an adjacency-list graph representing valid transport routes. It handles shortest path reconstruction and filters out disconnected zones in `O((V + E) log V)` time.
+
+### 4. Cryptographic Delivery OTP Integrity
+- At startup, the system generates an owner-only, Base64-encoded 32-byte AES-GCM key file (`.relay-delivery-code.key`).
+- Every order receives a 6-digit verification code.
+- To prevent database leaks, the code is stored in the database as a salted PBKDF2 hash.
+- For customer retrieval, the code is encrypted with AES-GCM and returned only to the authorized customer's profile.
+- A cryptographic HMAC fingerprint prevents the code from being reused by future orders.
+
+---
+
+## Technology Stack
+
+### Backend Architecture
+- **Java 17 (JDK 17)**: Leverages modern Java features including Records, Switch Expressions, and Text Blocks.
+- **Maven**: Build automation and dependency resolution.
+- **PostgreSQL 14+**: Relational database handling transactions, partial indexes, check constraints, and concurrent queue processing.
+- **JDBC & HikariCP**: Lightweight, raw SQL data mapping and high-performance database connection pooling.
+- **PBKDF2 & AES-GCM**: Cryptographic engines for secure storage and encryption.
+
+### Frontend Interface
+- **Vanilla HTML5 & CSS3**: Pure CSS custom properties, grid layouts, keyframe transitions, and a fully responsive interface (supporting Mobile, Tablet, and Desktop form-factors) with keyboard focus trapping.
+- **Vanilla ES6+ JavaScript**: Lightweight frontend logic utilizing the native Fetch API, standard DOM events, `AbortController` for debouncing, and Map adapters.
+
+### Verification & Testing
+- **Vitest**: Fast, Node.js-based test framework.
+- **Integration Test Suite (`test:api`)**: Full security checkups, CORS restriction tests, login throttling verification, quote tampering simulations, and concurrency verification.
+
+---
+
 ## Pricing And Orders
 
 All currency uses Java `BigDecimal` and PostgreSQL `NUMERIC`. The pricing engine
