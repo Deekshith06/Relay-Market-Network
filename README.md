@@ -1,13 +1,43 @@
 # Relay Market Network
 
-Relay is a three-role marketplace and delivery system built with Java 17, JDBC,
-PostgreSQL, and vanilla HTML/CSS/JavaScript. Customers shop database-backed
-categories, receive server-priced delivery quotes, schedule gifts, and track the
-assigned courier. Agents share location and execute deliveries; admins manage the
-catalog, inventory, pricing, assignments, scheduled work, and live signals.
+**A production-grade, three-role marketplace and delivery system** — Java 17, JDBC, PostgreSQL, and vanilla HTML/CSS/JavaScript, engineered around transactional integrity, live dispatch, and cryptographically verified handoffs.
 
-The Java process serves both `/api/*` and `frontend/`, so the normal deployment is
-same-origin and needs no separate frontend server.
+![Java](https://img.shields.io/badge/Java-17-orange)
+![PostgreSQL](https://img.shields.io/badge/PostgreSQL-14%2B-336791)
+![Maven](https://img.shields.io/badge/Build-Maven-C71A36)
+![Node](https://img.shields.io/badge/Node.js-20%2B-339933)
+![Status](https://img.shields.io/badge/Status-Active-brightgreen)
+![License](https://img.shields.io/badge/License-MIT-blue)
+
+Customers shop database-backed categories, receive server-priced delivery quotes, schedule gifts, and track their assigned courier in real time. Agents share location and execute deliveries. Admins manage the catalog, inventory, pricing, assignments, scheduled work, and live operational signals.
+
+The Java process serves both `/api/*` and `frontend/`, so the standard deployment is same-origin and needs no separate frontend server.
+
+> **Built with Codex & GPT-5.6.** Codex handled implementation and debugging (concurrency logic, the Min-Heap/Dijkstra dispatch engine, the crypto delivery-code pipeline). GPT-5.6 handled architecture, the role/permission design, and this documentation. Full breakdown in [Built With Codex & GPT-5.6](#built-with-codex--gpt-56).
+
+---
+
+## Table of Contents
+
+- [Requirements](#requirements)
+- [Database Setup](#database-setup)
+- [Run](#run)
+- [Configuration](#configuration)
+- [Architecture & Workflow Diagrams](#advanced-workflow-charts)
+- [Role and Transition Authority](#role-and-transition-authority)
+- [Detailed Role Workflows](#detailed-role-workflows)
+- [Advanced Architecture & Data Flow](#advanced-architecture--data-flow)
+- [Technology Stack](#technology-stack)
+- [Pricing and Orders](#pricing-and-orders)
+- [API Surface](#api-surface)
+- [Delivery Verification](#delivery-verification)
+- [Dispatch Algorithms](#dispatch-algorithms)
+- [Testing & Verification](#verification)
+- [Manual End-to-End Check](#manual-end-to-end-check)
+- [Built With Codex & GPT-5.6](#built-with-codex--gpt-56)
+- [License](#license)
+
+---
 
 ## Requirements
 
@@ -25,28 +55,21 @@ export PATH="$JAVA_HOME/bin:$PATH"
 
 ## Database Setup
 
-`schema.sql` is the complete development schema and seed script. It drops Relay
-objects before recreating them, so do not run it against a database containing
-data that must be retained.
+`schema.sql` is the complete development schema and seed script. It drops Relay objects before recreating them, so do not run it against a database containing data that must be retained.
 
 ```bash
 createdb relay_delivery
 psql -d relay_delivery -v ON_ERROR_STOP=1 -f schema.sql
 ```
 
-For an existing Relay database, apply the additive migration instead. It keeps
-users, carts, orders, and inventory intact while adding audit ledgers, optimistic
-order versions, and the corrected cart identity sequence:
+For an existing Relay database, apply the additive migration instead. It keeps users, carts, orders, and inventory intact while adding audit ledgers, optimistic order versions, and the corrected cart identity sequence:
 
 ```bash
 psql -d relay_delivery -v ON_ERROR_STOP=1 -f migrations/001_admin_audit_and_sequences.sql
 psql -d relay_delivery -v ON_ERROR_STOP=1 -f migrations/002_delivery_verification.sql
 ```
 
-It seeds 15 categories, 16 products, product variants, six vehicle types, pricing
-tiers, coupons, delivery slots, zones, routes, addresses, agents, and sample
-orders. The PostgreSQL-specific `CHECK`, partial index, `SKIP LOCKED`, and view
-features are intentional.
+It seeds 15 categories, 16 products, product variants, six vehicle types, pricing tiers, coupons, delivery slots, zones, routes, addresses, agents, and sample orders. The PostgreSQL-specific `CHECK`, partial index, `SKIP LOCKED`, and view features are intentional.
 
 ## Run
 
@@ -87,16 +110,11 @@ Open `http://localhost:8080`.
 | `DELIVERY_CODE_VALID_DAYS` | `30` | Immediate-order verification-code lifetime |
 | `DELIVERY_CODE_BLOCK_MINUTES` | `15` | Lockout after five failed verification attempts |
 
-Do not commit database credentials or map-provider keys. The current frontend
-ships the keyless `MapAdapter` fallback: it shows a route visual, coordinates,
-timeline, distance, ETA, and external-map link when no SDK is configured.
+Do not commit database credentials or map-provider keys. The current frontend ships the keyless `MapAdapter` fallback: it shows a route visual, coordinates, timeline, distance, ETA, and external-map link when no SDK is configured.
 
 ## Advanced Workflow Charts
 
-The workflow is enforced on both the frontend and backend. The frontend controls
-what actions are shown, while the backend remains the final authority for roles,
-order ownership, courier assignment, state transitions, inventory, pricing, and
-delivery-code verification.
+The workflow is enforced on both the frontend and backend. The frontend controls what actions are shown, while the backend remains the final authority for roles, order ownership, courier assignment, state transitions, inventory, pricing, and delivery-code verification.
 
 ### Complete Platform Workflow
 
@@ -303,8 +321,7 @@ flowchart TD
     I2 --> B
 ```
 
-> Admins do not have a delivery-code bypass. An admin can confirm delivery only by
-> submitting the same customer-owned code and a documented operational reason.
+> Admins do not have a delivery-code bypass. An admin can confirm delivery only by submitting the same customer-owned code and a documented operational reason.
 
 ### Strict Order State Machine
 
@@ -525,12 +542,7 @@ sequenceDiagram
     end
 ```
 
-The scheduled gift flow is intentionally implemented as a sequence diagram rather
-than one long horizontal flowchart. This keeps the chart both wide and tall on
-GitHub, makes every phase readable without excessive zooming, and clearly shows
-which actor owns each action. Gift orders retain the same secure quote,
-idempotency, inventory reservation, `SKIP LOCKED` release, courier assignment,
-live tracking, and delivery-code protections as immediate orders.
+The scheduled gift flow is intentionally implemented as a sequence diagram rather than one long horizontal flowchart. This keeps the chart both wide and tall on GitHub, makes every phase readable without excessive zooming, and clearly shows which actor owns each action. Gift orders retain the same secure quote, idempotency, inventory reservation, `SKIP LOCKED` release, courier assignment, live tracking, and delivery-code protections as immediate orders.
 
 ### Frontend Action and Freeze-Prevention Workflow
 
@@ -557,12 +569,9 @@ flowchart TD
     P --> Q[Website remains clickable without reload]
 ```
 
-Every asynchronous frontend action must clear its loading state in `finally`. Modal
-cleanup removes backdrops, document listeners, body scroll locks, and temporary
-`pointer-events` changes. A failed request must never leave a full-page overlay or
-permanently disabled interface.
+Every asynchronous frontend action must clear its loading state in `finally`. Modal cleanup removes backdrops, document listeners, body scroll locks, and temporary `pointer-events` changes. A failed request must never leave a full-page overlay or permanently disabled interface.
 
-### Role and Transition Authority
+## Role and Transition Authority
 
 | Operation | Customer | Assigned Courier | Admin | Backend enforcement |
 | --- | --- | --- | --- | --- |
@@ -577,102 +586,74 @@ permanently disabled interface.
 | Directly set `DELIVERED` | No | No | No | Always rejected outside verification endpoint |
 | Cancel order | Policy dependent | No | Policy dependent | State, ownership and inventory release rules |
 
-### Detailed Role Workflows
+## Detailed Role Workflows
 
-#### 1. Customer Workflow
+### 1. Customer Workflow
 
-- **Catalog and product selection:** Browse database-backed categories including
-  electronics, clothes, food, tablets, and other items. Select fixed-price,
-  variant-based, or weight-based products.
-- **Dynamic price preview:** Before checkout, view the product subtotal, weight
-  charge, progressive distance charge, handling fees, gift/schedule charges,
-  platform fees, tax, discount, and final payable amount.
-- **Address and live location:** Use browser location when permitted or select a
-  saved/manual address. The backend calculates route distance and eligible zones.
-- **Gift scheduling:** Choose recipient, occasion, message, wrapping, hidden-price
-  packing slip, exact date, and available delivery slot.
-- **Safe checkout:** Submit the server quote with an `Idempotency-Key`. Quote
-  validation, stock locking, stock decrement, slot reservation, and order creation
-  occur in one transaction.
-- **Private delivery code:** Receive a unique six-digit code visible only on the
-  authenticated customer order page. Share it only after physically receiving and
-  checking the parcel.
-- **Live tracking:** Follow courier position, route, ETA, status timeline, and
-  delivery progress without refreshing the entire page.
+- **Catalog and product selection:** Browse database-backed categories including electronics, clothes, food, tablets, and other items. Select fixed-price, variant-based, or weight-based products.
+- **Dynamic price preview:** Before checkout, view the product subtotal, weight charge, progressive distance charge, handling fees, gift/schedule charges, platform fees, tax, discount, and final payable amount.
+- **Address and live location:** Use browser location when permitted or select a saved/manual address. The backend calculates route distance and eligible zones.
+- **Gift scheduling:** Choose recipient, occasion, message, wrapping, hidden-price packing slip, exact date, and available delivery slot.
+- **Safe checkout:** Submit the server quote with an `Idempotency-Key`. Quote validation, stock locking, stock decrement, slot reservation, and order creation occur in one transaction.
+- **Private delivery code:** Receive a unique six-digit code visible only on the authenticated customer order page. Share it only after physically receiving and checking the parcel.
+- **Live tracking:** Follow courier position, route, ETA, status timeline, and delivery progress without refreshing the entire page.
 
-#### 2. Courier Workflow
+### 2. Courier Workflow
 
-- **Shift activation:** Sign in, activate the shift, publish vehicle/capacity data,
-  and begin validated location sharing.
-- **Assignment:** Receive only orders compatible with zone, remaining capacity,
-  vehicle type, carried weight, current workload, distance, and availability.
-- **Pickup and transit:** Move the order through `ASSIGNED`, `PICKED_UP`,
-  `OUT_FOR_DELIVERY`, and `DELIVERY_VERIFICATION`. Each transition is checked by
-  the backend and restricted to the currently assigned courier.
-- **Secure handoff:** Enter the customer's six-digit code. Incorrect attempts are
-  counted and audited; five failures trigger a temporary lockout.
-- **Completion:** A correct code atomically marks the order `DELIVERED`, records the
-  verifier, clears recoverable code material, stops tracking, and releases courier
-  capacity.
+- **Shift activation:** Sign in, activate the shift, publish vehicle/capacity data, and begin validated location sharing.
+- **Assignment:** Receive only orders compatible with zone, remaining capacity, vehicle type, carried weight, current workload, distance, and availability.
+- **Pickup and transit:** Move the order through `ASSIGNED`, `PICKED_UP`, `OUT_FOR_DELIVERY`, and `DELIVERY_VERIFICATION`. Each transition is checked by the backend and restricted to the currently assigned courier.
+- **Secure handoff:** Enter the customer's six-digit code. Incorrect attempts are counted and audited; five failures trigger a temporary lockout.
+- **Completion:** A correct code atomically marks the order `DELIVERED`, records the verifier, clears recoverable code material, stops tracking, and releases courier capacity.
 
-#### 3. Admin Workflow
+### 3. Admin Workflow
 
-- **Catalog and inventory:** Create, update, deactivate, and restore products,
-  categories, variants, prices, weights, stock, images, and operational rules.
-- **Order operations:** Confirm orders, complete packing, assign/reassign couriers,
-  inspect scheduled deliveries, and resolve dispatch exceptions.
-- **Concurrency safety:** Assignment and reassignment require
-  `expectedOrderVersion`; stale actions return `409` and cannot overwrite newer
-  dispatch decisions.
-- **Live control centre:** Monitor active couriers, stale GPS signals, current
-  routes, ETA risk, capacity, scheduled gifts, low stock, failed payments, and
-  verification lockouts.
-- **Delivery confirmation:** Admin confirmation is not a bypass. The admin must
-  enter the correct customer code and a mandatory reason. The action records the
-  admin identity, reason, timestamp, old/new state, and security metadata.
+- **Catalog and inventory:** Create, update, deactivate, and restore products, categories, variants, prices, weights, stock, images, and operational rules.
+- **Order operations:** Confirm orders, complete packing, assign/reassign couriers, inspect scheduled deliveries, and resolve dispatch exceptions.
+- **Concurrency safety:** Assignment and reassignment require `expectedOrderVersion`; stale actions return `409` and cannot overwrite newer dispatch decisions.
+- **Live control centre:** Monitor active couriers, stale GPS signals, current routes, ETA risk, capacity, scheduled gifts, low stock, failed payments, and verification lockouts.
+- **Delivery confirmation:** Admin confirmation is not a bypass. The admin must enter the correct customer code and a mandatory reason. The action records the admin identity, reason, timestamp, old/new state, and security metadata.
 
-#### 4. Failure and Recovery Workflow
+### 4. Failure and Recovery Workflow
 
-- **Quote expired or changed:** Generate a fresh server quote and preserve checkout
-  selections.
-- **Stock conflict:** Roll back checkout and show the unavailable item without
-  creating a partial order.
-- **Duplicate Place Order click:** Return the original result through the same
-  `Idempotency-Key`.
-- **Stale admin action:** Return `409`, reload the current order version, and ask
-  the admin to repeat the operation against fresh data.
-- **No eligible courier:** Keep the order in the pending queue and retry without
-  allowing a heavy order at the head to block compatible later orders.
+- **Quote expired or changed:** Generate a fresh server quote and preserve checkout selections.
+- **Stock conflict:** Roll back checkout and show the unavailable item without creating a partial order.
+- **Duplicate Place Order click:** Return the original result through the same `Idempotency-Key`.
+- **Stale admin action:** Return `409`, reload the current order version, and ask the admin to repeat the operation against fresh data.
+- **No eligible courier:** Keep the order in the pending queue and retry without allowing a heavy order at the head to block compatible later orders.
 - **Location rejected:** Keep the last valid point and request a fresh GPS update.
-- **Incorrect delivery code:** Commit the failed-attempt counter and audit record
-  even though delivery is rejected.
-- **Five failed attempts:** Set a temporary server-side lockout and show the unlock
-  time without exposing any code information.
-- **Frontend request failure:** Remove loaders and overlays in `finally`, preserve
-  entered data, and present a retry button without reloading the page.
+- **Incorrect delivery code:** Commit the failed-attempt counter and audit record even though delivery is rejected.
+- **Five failed attempts:** Set a temporary server-side lockout and show the unlock time without exposing any code information.
+- **Frontend request failure:** Remove loaders and overlays in `finally`, preserve entered data, and present a retry button without reloading the page.
 
 ---
 
 ## Advanced Architecture & Data Flow
 
 ### 1. Double-Checkout Transactional Isolation
+
 To prevent race conditions, stock double-booking, and quote tampering:
+
 - During order creation, the database locks the pricing quote record using transaction isolation (`FOR UPDATE`).
 - The engine reconstructs the shopping cart price, recalculates the dynamic rules, and compares it bit-for-bit with the submitted quote.
 - Stock checks and decrementing occur inside the *same* database transaction block.
 - An `Idempotency-Key` header ensures duplicate client requests safely return the original successful response instead of re-processing.
 
 ### 2. Core Scheduler & `SKIP LOCKED` Queue Polls
+
 For scheduled orders and future gifts:
+
 - A Java background scheduler wakes up periodically to poll pending scheduled tasks.
 - It queries the database using PostgreSQL's `SELECT ... FOR UPDATE SKIP LOCKED`.
 - This ensures multiple backend instances can query the queue simultaneously without blocking each other or double-dispatching the same scheduled delivery.
 
 ### 3. Agent Assignment Min-Heap & Dijkstra Router
+
 - **Min-Heap Sorter**: The dispatch algorithm structures available agents into a Min-Heap. The priority is calculated using active order counts, remaining vehicle weight capacity, distance, and agent rating. Complexity is bounded at `O(a log a)`.
 - **Dijkstra Route Optimizer**: Built on an adjacency-list graph representing valid transport routes. It handles shortest path reconstruction and filters out disconnected zones in `O((V + E) log V)` time.
 
 ### 4. Cryptographic Delivery OTP Integrity
+
 - At startup, the system generates an owner-only, Base64-encoded 32-byte AES-GCM key file (`.relay-delivery-code.key`).
 - Every order receives a 6-digit verification code.
 - To prevent database leaks, the code is stored in the database as a salted PBKDF2 hash.
@@ -684,6 +665,7 @@ For scheduled orders and future gifts:
 ## Technology Stack
 
 ### Backend Architecture
+
 - **Java 17 (JDK 17)**: Leverages modern Java features including Records, Switch Expressions, and Text Blocks.
 - **Maven**: Build automation and dependency resolution.
 - **PostgreSQL 14+**: Relational database handling transactions, partial indexes, check constraints, and concurrent queue processing.
@@ -691,19 +673,20 @@ For scheduled orders and future gifts:
 - **PBKDF2 & AES-GCM**: Cryptographic engines for secure storage and encryption.
 
 ### Frontend Interface
+
 - **Vanilla HTML5 & CSS3**: Pure CSS custom properties, grid layouts, keyframe transitions, and a fully responsive interface (supporting Mobile, Tablet, and Desktop form-factors) with keyboard focus trapping.
 - **Vanilla ES6+ JavaScript**: Lightweight frontend logic utilizing the native Fetch API, standard DOM events, `AbortController` for debouncing, and Map adapters.
 
 ### Verification & Testing
+
 - **Vitest**: Fast, Node.js-based test framework.
 - **Integration Test Suite (`test:api`)**: Full security checkups, CORS restriction tests, login throttling verification, quote tampering simulations, and concurrency verification.
 
 ---
 
-## Pricing And Orders
+## Pricing and Orders
 
-All currency uses Java `BigDecimal` and PostgreSQL `NUMERIC`. The pricing engine
-loads active SQL rules and computes:
+All currency uses Java `BigDecimal` and PostgreSQL `NUMERIC`. The pricing engine loads active SQL rules and computes:
 
 ```text
 products + base + progressive distance + progressive weight
@@ -711,86 +694,39 @@ products + base + progressive distance + progressive weight
 + gift/schedule/platform charges + tax - discount = final payable
 ```
 
-`POST /api/pricing/quote` persists a customer-owned snapshot under a random UUID.
-At `POST /api/orders`, the backend locks the quote, rejects expiry/reuse, rebuilds
-the catalog and rule calculation, compares every monetary component, locks stock,
-uses conditional decrements, and marks the quote used in the same transaction.
-An 8-100 character `Idempotency-Key` makes order retries return the original order.
+`POST /api/pricing/quote` persists a customer-owned snapshot under a random UUID. At `POST /api/orders`, the backend locks the quote, rejects expiry/reuse, rebuilds the catalog and rule calculation, compares every monetary component, locks stock, uses conditional decrements, and marks the quote used in the same transaction. An 8-100 character `Idempotency-Key` makes order retries return the original order.
 
-Future gifts persist as `SCHEDULED`. A Core Java scheduler only triggers database
-polls; `FOR UPDATE SKIP LOCKED` and conditional status updates release each due row
-once after restarts. Slot rows serialize concurrent checkout capacity. Inventory
-reservations are transactionally released on cancellation and committed when the
-scheduled order is released for dispatch.
+Future gifts persist as `SCHEDULED`. A Core Java scheduler only triggers database polls; `FOR UPDATE SKIP LOCKED` and conditional status updates release each due row once after restarts. Slot rows serialize concurrent checkout capacity. Inventory reservations are transactionally released on cancellation and committed when the scheduled order is released for dispatch.
 
 ## API Surface
 
-All non-auth endpoints require `Authorization: Bearer <token>` and enforce role or
-resource ownership.
+All non-auth endpoints require `Authorization: Bearer <token>` and enforce role or resource ownership.
 
-- Catalog/cart: `GET /api/categories`, `GET /api/products[/{id}]`, and cart CRUD at
-  `/api/cart` and `/api/cart/items[/{id}]`.
-- Checkout: `POST /api/pricing/quote`, `POST /api/orders`, order list/detail,
-  lifecycle, route, and assignment endpoints.
-- Addresses/slots: CRUD at `/api/addresses[/{id}]` and
-  `GET /api/delivery/slots?date=YYYY-MM-DD&timezone=...`.
-- Tracking: `POST /api/agents/me/location`, `DELETE /api/agents/me/location`, and
-  `GET /api/orders/{id}/tracking`.
-- Delivery verification: `POST /api/orders/{id}/verify-delivery` for the assigned
-  courier and `POST /api/admin/orders/{id}/verify-delivery` with a required manual
-  confirmation reason.
-- Admin: overview, scheduled orders, live deliveries, pricing analytics, product,
-  variant, stock, category, pricing-rule, assignment, and reassignment endpoints
-  below `/api/admin`.
+- **Catalog/cart:** `GET /api/categories`, `GET /api/products[/{id}]`, and cart CRUD at `/api/cart` and `/api/cart/items[/{id}]`.
+- **Checkout:** `POST /api/pricing/quote`, `POST /api/orders`, order list/detail, lifecycle, route, and assignment endpoints.
+- **Addresses/slots:** CRUD at `/api/addresses[/{id}]` and `GET /api/delivery/slots?date=YYYY-MM-DD&timezone=...`.
+- **Tracking:** `POST /api/agents/me/location`, `DELETE /api/agents/me/location`, and `GET /api/orders/{id}/tracking`.
+- **Delivery verification:** `POST /api/orders/{id}/verify-delivery` for the assigned courier and `POST /api/admin/orders/{id}/verify-delivery` with a required manual confirmation reason.
+- **Admin:** overview, scheduled orders, live deliveries, pricing analytics, product, variant, stock, category, pricing-rule, assignment, and reassignment endpoints below `/api/admin`.
 
-Manual assignment and reassignment require `expectedOrderVersion` from the order
-being viewed. The database row is locked and its version is checked before agent
-capacity, coverage, load, order status, status log, and assignment audit are
-committed together. Stale admin actions return `409` instead of overwriting newer
-dispatch work.
+Manual assignment and reassignment require `expectedOrderVersion` from the order being viewed. The database row is locked and its version is checked before agent capacity, coverage, load, order status, status log, and assignment audit are committed together. Stale admin actions return `409` instead of overwriting newer dispatch work.
 
-The shared frontend updates cart rows optimistically, serializes rapid quantity
-changes, cancels obsolete quotes with `AbortController`, and polls only live order
-resources. Product, category, stock, assignment, status, address, and pricing
-mutations patch the affected panel without reloading the document.
+The shared frontend updates cart rows optimistically, serializes rapid quantity changes, cancels obsolete quotes with `AbortController`, and polls only live order resources. Product, category, stock, assignment, status, address, and pricing mutations patch the affected panel without reloading the document.
 
-Tracking validates coordinate ranges, timestamp freshness, assignment ownership,
-duplicates, speed, and impossible jumps. Only the order customer, assigned agent,
-or admin can read tracking; contact details are masked. Current location and
-retained history are stored separately, and sharing is removed on completion,
-cancellation, stop, or logout.
+Tracking validates coordinate ranges, timestamp freshness, assignment ownership, duplicates, speed, and impossible jumps. Only the order customer, assigned agent, or admin can read tracking; contact details are masked. Current location and retained history are stored separately, and sharing is removed on completion, cancellation, stop, or logout.
 
 ## Delivery Verification
 
-Every committed order receives an unused six-digit code. The database stores a
-salted PBKDF2 hash for comparison, AES-GCM ciphertext for customer-only display,
-and a retained HMAC fingerprint that prevents reuse by future orders. Admin and
-courier order/tracking responses omit the code. After delivery, the hash and
-ciphertext are cleared while the fingerprint remains reserved.
+Every committed order receives an unused six-digit code. The database stores a salted PBKDF2 hash for comparison, AES-GCM ciphertext for customer-only display, and a retained HMAC fingerprint that prevents reuse by future orders. Admin and courier order/tracking responses omit the code. After delivery, the hash and ciphertext are cleared while the fingerprint remains reserved.
 
-The enforced lifecycle is `PLACED -> CONFIRMED -> PACKED -> ASSIGNED ->
-PICKED_UP -> OUT_FOR_DELIVERY -> DELIVERY_VERIFICATION -> DELIVERED`.
-`DELIVERED` is rejected by both normal status endpoints. The assigned courier or
-an admin with a reason must submit the customer code; verification, delivery
-timestamp, verifier identity, agent load release, status log, and security audit
-commit atomically. Five failures create a temporary lockout, and expired, failed,
-blocked, courier-verified, and admin-verified events are audited without recording
-the submitted code.
+The enforced lifecycle is `PLACED -> CONFIRMED -> PACKED -> ASSIGNED -> PICKED_UP -> OUT_FOR_DELIVERY -> DELIVERY_VERIFICATION -> DELIVERED`. `DELIVERED` is rejected by both normal status endpoints. The assigned courier or an admin with a reason must submit the customer code; verification, delivery timestamp, verifier identity, agent load release, status log, and security audit commit atomically. Five failures create a temporary lockout, and expired, failed, blocked, courier-verified, and admin-verified events are audited without recording the submitted code.
 
 ## Dispatch Algorithms
 
-- `AgentAssignmentService` builds a Min-Heap ordered by availability, remaining
-  capacity fit, Haversine distance, active-order count, carried weight, rating,
-  and deterministic agent ID. It is `O(a log a)` time and `O(a)` space.
-- `RouteOptimizer` uses an adjacency-list graph and Dijkstra with route
-  reconstruction. It rejects negative edges and reports disconnected zones in
-  `O((V + E) log V)` time and `O(V + E)` space.
-- `PendingOrderQueue` combines `ArrayDeque` and `HashSet` for FIFO `O(1)` average
-  offer/poll/deduplication. Each dispatch pass scans the initial queue once, so an
-  overweight head does not block later compatible work.
-- Agent claims are conditional SQL updates inside the locked order transaction.
-  Multiple application instances cannot exceed vehicle weight or active-order
-  capacity.
+- **`AgentAssignmentService`** builds a Min-Heap ordered by availability, remaining capacity fit, Haversine distance, active-order count, carried weight, rating, and deterministic agent ID. It is `O(a log a)` time and `O(a)` space.
+- **`RouteOptimizer`** uses an adjacency-list graph and Dijkstra with route reconstruction. It rejects negative edges and reports disconnected zones in `O((V + E) log V)` time and `O(V + E)` space.
+- **`PendingOrderQueue`** combines `ArrayDeque` and `HashSet` for FIFO `O(1)` average offer/poll/deduplication. Each dispatch pass scans the initial queue once, so an overweight head does not block later compatible work.
+- Agent claims are conditional SQL updates inside the locked order transaction. Multiple application instances cannot exceed vehicle weight or active-order capacity.
 
 ## Verification
 
@@ -802,43 +738,46 @@ npm test
 npm run lint
 ```
 
-After loading a fresh schema and starting the JAR on port 8080 with
-`CORS_ORIGIN=http://localhost:3000`, run:
+After loading a fresh schema and starting the JAR on port 8080 with `CORS_ORIGIN=http://localhost:3000`, run:
 
 ```bash
 npm run test:api
 ```
 
-That HTTP suite covers security headers, restricted CORS, login throttling,
-registration/re-login and logout invalidation, authorization, database
-catalog/search, admin product lifecycle and stock audit, address and cart CRUD,
-weight accumulation, fixed/variant/weight mixed pricing, quote tampering/reuse,
-idempotency, inventory, price changes, tracking ownership and lifecycle, scheduled
-gifts, capacity queuing, stale assignment rejection, customer-only delivery-code
-exposure, direct-delivery rejection, courier/admin verification, one-time use,
-five-attempt lockout, and audited reassignment.
+That HTTP suite covers security headers, restricted CORS, login throttling, registration/re-login and logout invalidation, authorization, database catalog/search, admin product lifecycle and stock audit, address and cart CRUD, weight accumulation, fixed/variant/weight mixed pricing, quote tampering/reuse, idempotency, inventory, price changes, tracking ownership and lifecycle, scheduled gifts, capacity queuing, stale assignment rejection, customer-only delivery-code exposure, direct-delivery rejection, courier/admin verification, one-time use, five-attempt lockout, and audited reassignment.
 
-Session tokens are intentionally process-local and expire after `SESSION_HOURS`.
-Refreshing or navigating while the server is running preserves the session; after
-a Java process restart, sign in again. Accounts and password hashes remain in
-PostgreSQL and are unaffected by a restart.
+Session tokens are intentionally process-local and expire after `SESSION_HOURS`. Refreshing or navigating while the server is running preserves the session; after a Java process restart, sign in again. Accounts and password hashes remain in PostgreSQL and are unaffected by a restart.
 
 ## Manual End-To-End Check
 
-1. Sign in as Maya; search/filter products, open a keyboard-accessible product
-   modal, add fixed, variant, and weight items, and verify the fly-to-cart landing.
-2. Deny browser location permission, enter an address manually, then allow it and
-   confirm accuracy is shown. Change priority, gift, date, slot, or coupon and
-   verify the debounced quote breakdown refreshes.
-3. Confirm the final modal and double-click Place Order. Verify one order exists,
-   then open it and inspect status, fallback map, timeline, distance, and ETA.
-4. Place a future gift; verify recipient, occasion, hidden-price option, wrapping,
-   schedule, and charges on customer, courier, and admin views.
-5. Sign in as the assigned courier, share location, advance to Delivery
-   Verification, and confirm unrelated users cannot track it. Enter Maya's code,
-   complete delivery, and verify the code disappears and location sharing stops.
-6. As admin, edit products, stock, variants, categories, and pricing rules; inspect
-   scheduled orders, live/stale signals, analytics, low stock, assignment, and
-   reassignment behavior.
-7. Check desktop, tablet, and mobile widths, keyboard focus trapping, Escape close,
-   restored modal focus, empty/loading/error/offline states, and reduced motion.
+1. Sign in as Maya; search/filter products, open a keyboard-accessible product modal, add fixed, variant, and weight items, and verify the fly-to-cart landing.
+2. Deny browser location permission, enter an address manually, then allow it and confirm accuracy is shown. Change priority, gift, date, slot, or coupon and verify the debounced quote breakdown refreshes.
+3. Confirm the final modal and double-click Place Order. Verify one order exists, then open it and inspect status, fallback map, timeline, distance, and ETA.
+4. Place a future gift; verify recipient, occasion, hidden-price option, wrapping, schedule, and charges on customer, courier, and admin views.
+5. Sign in as the assigned courier, share location, advance to Delivery Verification, and confirm unrelated users cannot track it. Enter Maya's code, complete delivery, and verify the code disappears and location sharing stops.
+6. As admin, edit products, stock, variants, categories, and pricing rules; inspect scheduled orders, live/stale signals, analytics, low stock, assignment, and reassignment behavior.
+7. Check desktop, tablet, and mobile widths, keyboard focus trapping, Escape close, restored modal focus, empty/loading/error/offline states, and reduced motion.
+
+---
+
+## Built With Codex & GPT-5.6
+
+This project used two OpenAI tools in distinct roles rather than one tool doing everything:
+
+**Codex — implementation and debugging.** Codex was used at the code level: scaffolding the `AgentAssignmentService` Min-Heap and the Dijkstra-based `RouteOptimizer` with correct complexity bounds, working through the double-checkout transaction lock and `FOR UPDATE SKIP LOCKED` scheduler polling until the race conditions actually closed, implementing the PBKDF2 + AES-GCM + HMAC delivery-code pipeline, and clearing the repetitive scaffolding (CRUD endpoints, migration scripts, `finally`-block cleanup on the frontend) that eats build time without requiring real judgment calls.
+
+**GPT-5.6 — architecture, docs, and system design.** GPT-5.6 was used one level up: reasoning through the role/permission model (customer vs. assigned courier vs. admin) before any code was written, keeping the seven Mermaid diagrams in this README consistent with the actual state machine and API surface as both evolved, and drafting/structuring this documentation and the project's hackathon submission narrative.
+
+A few concrete reasons this combination mattered on a system of this scope:
+
+- **Untangling concurrency edge cases.** Race conditions in checkout, reassignment, and scheduled release are easy to get subtly wrong; having a tool trace each one to its actual failure mode — not a guessed one — caught issues before they shipped.
+- **Algorithm correctness up front.** The Min-Heap and Dijkstra implementations were sanity-checked against edge cases like disconnected zones and negative-edge rejection before integration, not after a bug report.
+- **Security review by construction.** The delivery-code scheme (PBKDF2 hash, AES-GCM ciphertext, HMAC fingerprint) benefited from having each piece — what's stored, what's cleared on delivery, what must never appear in a courier/admin response — cross-checked as it was built.
+- **Diagram-to-spec consistency.** Cross-referencing seven diagrams against the prose and the actual backend rules by hand is tedious and error-prone; catching drift early kept the documentation trustworthy.
+- **Compressing the design loop.** The net effect was less "AI wrote the system" and more a shorter loop between "here's a hard problem" and "here's a reviewed, working answer" — which is what made a project with this much surface area (transactions, live tracking, scheduled gifts, cryptographic verification, role-based dispatch) tractable to build and document thoroughly in the available time.
+
+
+
+## Contributing
+
+Issues and pull requests are welcome. Please run `mvn clean package`, `npm test`, `npm run lint`, and `npm run test:api` before submitting changes, and keep the Mermaid diagrams in this README in sync with any state-machine or workflow change.
